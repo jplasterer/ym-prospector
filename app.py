@@ -31,6 +31,44 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+st.markdown("""
+<style>
+    /* Starkweather brand colors */
+    .stButton > button[kind="primary"] {
+        background-color: #1b5897;
+        border-color: #1b5897;
+    }
+    .stButton > button[kind="primary"]:hover {
+        background-color: #154778;
+        border-color: #154778;
+    }
+    /* Metric cards */
+    div[data-testid="metric-container"] {
+        background-color: #f0f4f9;
+        border-left: 4px solid #1b5897;
+        border-radius: 6px;
+        padding: 0.5rem;
+    }
+    /* Tab styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background-color: #f0f4f9;
+        border-radius: 6px 6px 0 0;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #1b5897 !important;
+        color: white !important;
+    }
+    /* Sidebar background */
+    section[data-testid="stSidebar"] {
+        background-color: #f0f4f9;
+        border-right: 2px solid #1b5897;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 OUTPUT_DIR = str(Path(__file__).parent / "output" / "nightly")
 
 # ---------------------------------------------------------------------------
@@ -98,8 +136,10 @@ def style_tier_row(row):
 # ---------------------------------------------------------------------------
 
 with st.sidebar:
-    st.markdown("## YM Prospector")
-    st.caption("Starkweather Association Services")
+    logo_path = Path(__file__).parent / "assets" / "logo.png"
+    if logo_path.exists():
+        st.image(str(logo_path), width=160)
+    st.markdown("### YM Prospector")
     st.caption(f"Logged in as **{st.session_state.get('name', '')}**")
     authenticator.logout("Log Out", "sidebar")
     st.divider()
@@ -141,8 +181,14 @@ with st.sidebar:
 # Main content
 # ---------------------------------------------------------------------------
 
-st.title("Starkweather YM Prospector")
-st.caption("YourMembership Association Discovery — Powered by Brave Search + Claude")
+st.markdown("""
+<div style="background-color:#1b5897;color:white;padding:1rem 1.5rem;border-radius:8px;margin-bottom:1rem;">
+    <h2 style="color:white;margin:0;font-family:'Open Sans',sans-serif;">YM Prospector</h2>
+    <p style="color:rgba(255,255,255,0.85);margin:0.2rem 0 0 0;font-size:0.9rem;">
+        YourMembership Association Discovery — Starkweather Association Services
+    </p>
+</div>
+""", unsafe_allow_html=True)
 
 tab_run, tab_results, tab_history, tab_ghl = st.tabs(
     ["Run Session", "Results", "Run History", "Export to GHL"]
