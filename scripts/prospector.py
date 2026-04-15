@@ -146,11 +146,24 @@ KNOWN LOW-REVENUE PATTERNS (flag but do not surface for ICP outreach):
   "project_opportunity_notes" field as candidates for smaller-value project or advisory work,
   even though they do not qualify for full managed services.
 
-YM SIGNALS to look for:
+YM SIGNALS to look for — in order of confidence:
+
+CONFIRMED (set ym_confirmed = "Yes"):
 - "yourmembership.com" in member portal URLs (login.yourmembership.com, members.yourmembership.com)
-- "Powered by YourMembership" in footers
-- YM job board embeds
-- YM member portal redirects
+- "Powered by YourMembership" text in page footer OR on the member portal login page
+- YM_SIGNAL tags prepended to page content — these were detected in raw HTML source
+
+STRONG (set ym_confirmed = "Likely"):
+- Login page URL contains "/Login.aspx" — this path is a hallmark of YM-hosted portals
+- "Access member community" or "Member login" button/link that leads to a yourmembership.com URL
+- YM job board embeds (jobs.yourmembership.com)
+- login_aspx_content field is populated — we successfully fetched /Login.aspx on their domain
+- "yourmembership" string appears in page source even if not in a URL
+
+MODERATE (set ym_confirmed = "Unconfirmed" but note in pain_signal_notes):
+- Association lists a separate "member portal" or "community" link pointing off-site that
+  could be a YM-hosted portal (investigate further)
+- Any reference to YourMembership in search snippets without direct URL confirmation
 
 DATA SOURCE RELIABILITY (use in this order):
 1. ProPublica 990 — most reliable for revenue and staff
@@ -203,7 +216,14 @@ def brave_search(query: str, count: int = 10) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def fetch_page(url: str, timeout: int = 8) -> str:
-    """Fetch a webpage and return cleaned text (truncated to 3,000 chars)."""
+    """Fetch a webpage and return cleaned text (truncated to 3,000 chars).
+
+    YM detection improvements:
+    - Scans raw HTML source for YourMembership strings BEFORE stripping tags
+      (catches references in scripts, meta tags, hidden elements, etc.)
+    - Preserves footer text — 'Powered by YourMembership' is often in the footer
+    - Prepends any detected YM signals as YM_SIGNAL: tags so Claude sees them first
+    """
     try:
         headers = {
             "User-Agent": (
@@ -214,11 +234,42 @@ def fetch_page(url: str, timeout: int = 8) -> str:
         }
         resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
         resp.raise_for_status()
+
+        # --- Scan raw HTML for YM signals before any tag-stripping ---
+        raw_lower = resp.text.lower()
+        ym_signals = []
+        if "powered by yourmembership" in raw_lower:
+            ym_signals.append("YM_SIGNAL: 'Powered by YourMembership' found in page source (CONFIRMED YM user)")
+        if "yourmembership.com" in raw_lower:
+            ym_signals.append("YM_SIGNAL: 'yourmembership.com' URL found in page source")
+        if "login.aspx" in raw_lower and "yourmembership" in raw_lower:
+            ym_signals.append("YM_SIGNAL: '/Login.aspx' path found alongside YourMembership reference (strong YM indicator)")
+        elif "login.aspx" in raw_lower:
+            ym_signals.append("YM_SIGNAL: '/Login.aspx' path found — possible YM login page")
+        if "yourmembership" in raw_lower and "yourmembership.com" not in raw_lower:
+            ym_signals.append("YM_SIGNAL: 'YourMembership' string found in page source (not just a URL)")
+
+        # --- Parse HTML, keeping footer (often contains 'Powered by YM') ---
         soup = BeautifulSoup(resp.text, "html.parser")
-        for tag in soup(["script", "style", "nav", "footer", "header"]):
+
+        # Extract footer text separately so it isn't lost
+        footer_text = ""
+        for footer_tag in soup.find_all(["footer", "div"], class_=lambda c: c and "footer" in c.lower() if c else False):
+            footer_text = footer_tag.get_text(separator=" ", strip=True)[:500]
+            break
+
+        for tag in soup(["script", "style", "nav", "header"]):  # footer intentionally kept
             tag.decompose()
-        text = soup.get_text(separator=" ", strip=True)
-        return text[:3000]
+
+        body_text = soup.get_text(separator=" ", strip=True)
+
+        # Assemble: YM signals first, then body, footer appended if not already present
+        prefix = "\n".join(ym_signals) + "\n" if ym_signals else ""
+        full_text = prefix + body_text
+        if footer_text and footer_text not in full_text:
+            full_text = full_text[:2500] + f"\n[FOOTER]: {footer_text}"
+
+        return full_text[:3000]
     except Exception:
         return ""
 
@@ -262,7 +313,15 @@ def extract_json(text: str) -> list:
 # ---------------------------------------------------------------------------
 
 def generate_search_queries(sector: str, keywords: list[str]) -> list[str]:
-    """Generate YM-fingerprint search queries for a sector."""
+    """Generate YM-fingerprint search queries for a sector.
+
+    Query patterns derived from known YM site indicators:
+    - login.yourmembership.com / members.yourmembership.com subdomains
+    - 'Powered by YourMembership' footer text
+    - site:yourmembership.com (YM-hosted portals indexed by Google)
+    - 'member login' / 'access member community' button text leading to YM
+    - /Login.aspx URL path — characteristic of YM member portal login pages
+    """
     queries = []
     for kw in keywords[:3]:
         queries.append(f'"login.yourmembership.com" {kw}')
@@ -270,7 +329,13 @@ def generate_search_queries(sector: str, keywords: list[str]) -> list[str]:
     queries.append(f'"powered by yourmembership" {keywords[0]}')
     queries.append(f'site:yourmembership.com {keywords[0]}')
     queries.append(f'"yourmembership" "member login" {keywords[0]} association')
-    return queries[:8]
+    # /Login.aspx is a characteristic URL path on YM member portals
+    queries.append(f'inurl:Login.aspx "yourmembership" {keywords[0]} association')
+    # "access member community" is a common YM portal CTA button label
+    queries.append(f'"access member community" {keywords[0]} association')
+    # Catch associations where YM portal lives on a separate subdomain
+    queries.append(f'"yourmembership" "sign in" OR "member portal" {keywords[0]} association')
+    return queries[:10]
 
 
 # ---------------------------------------------------------------------------
@@ -297,14 +362,20 @@ Task: Identify the most promising candidate organizations that appear to use You
 Rules:
 - Only include professional associations or trade associations
 - Exclude HOAs, clubs, alumni orgs, political orgs, AMCs, foundations, churches
-- Look for YM signals in the URLs or snippets (yourmembership.com domains, "Powered by YM", etc.)
+- Look for ANY of these YM signals in the URLs or snippets:
+  * "yourmembership.com" appearing in a URL (login.yourmembership.com, members.yourmembership.com, etc.)
+  * "Powered by YourMembership" text in a snippet
+  * "/Login.aspx" in a URL — this is a characteristic YM member portal login path
+  * "access member community" or "member login" button text in a snippet that links to YM
+  * YM job board embeds (jobs.yourmembership.com)
+  * Any mention of "YourMembership" in the snippet text
 - Each candidate should have their OWN main website (not yourmembership.com itself)
 
 Return a JSON array (no other text) with 15–20 objects, each containing:
 {{
   "name": "Full organization name",
   "website": "Their main website URL (not yourmembership.com)",
-  "ym_signal": "What YM signal was found (e.g. 'login.yourmembership.com in URL')",
+  "ym_signal": "Specific YM signal found (e.g. 'login.yourmembership.com in URL', '/Login.aspx path', 'Powered by YourMembership in snippet')",
   "org_type": "Type of association",
   "geography": "US or Canada if determinable, else Unknown",
   "initial_notes": "Any relevant observations from the snippet"
@@ -403,6 +474,20 @@ def research_candidate(candidate: dict, status_fn=None) -> dict:
         for r in linkedin_people
     ]
 
+    # --- 5. Probe /Login.aspx — characteristic YM member portal path ---
+    # Many YM associations host their member portal on their own domain at /Login.aspx.
+    # Fetching this page confirms YM usage even if the main site has no "Powered by" text.
+    if website:
+        login_url = website.rstrip("/") + "/Login.aspx"
+        login_content = fetch_page(login_url, timeout=6)
+        # Only keep if it returned real content (not a 404 redirect to homepage)
+        if login_content and len(login_content) > 100:
+            candidate["login_aspx_content"] = login_content[:600]
+        else:
+            candidate["login_aspx_content"] = ""
+    else:
+        candidate["login_aspx_content"] = ""
+
     # Also try a broader web search for email/phone on the org's own domain
     if website:
         domain = website.replace("https://", "").replace("http://", "").split("/")[0]
@@ -439,6 +524,8 @@ def score_prospects(candidates: list[dict], sector: str, status_fn=None) -> list
         entry["page_excerpt"] = c.get("page_content", "")[:600]
         entry["subpage_excerpt"] = c.get("subpage_content", "")[:800]
         entry["propublica_excerpt"] = c.get("propublica_content", "")[:800]
+        # login_aspx_content is already trimmed at source; include as-is
+        entry["login_aspx_content"] = c.get("login_aspx_content", "")
         trimmed.append(entry)
 
     candidates_text = json.dumps(trimmed, indent=2)
@@ -446,8 +533,12 @@ def score_prospects(candidates: list[dict], sector: str, status_fn=None) -> list
     prompt = f"""Here are {len(trimmed)} candidate organizations researched for the {sector} sector.
 
 Each candidate includes:
-- page_excerpt: text from their main website homepage
+- page_excerpt: text from their main website homepage. NOTE: This may begin with YM_SIGNAL: lines
+  detected from raw HTML source — these are high-confidence YM indicators even if not visible
+  in the rendered page text.
 - subpage_excerpt: text from /staff, /team, /leadership, /about, or /contact pages — use this for decision-maker names, titles, emails, and phone numbers
+- login_aspx_content: content fetched from the org's /Login.aspx path. If populated, this STRONGLY
+  confirms YM usage — /Login.aspx is a hallmark URL path for YM member portal login pages.
 - propublica_excerpt: actual content from ProPublica 990 page — use this for REVENUE and STAFF COUNT (most reliable source)
 - propublica_snippet: search snippet from ProPublica result
 - linkedin_company_snippet: LinkedIn company page snippet — often contains employee range (e.g. "11-50 employees")
