@@ -1,0 +1,23 @@
+credentials:
+  usernames:
+    jasmine:
+      email: jasmine@starkweather.us
+      name: Jasmine
+      password: "$2b$12$AETYf0wuntJvDmXE/7dl0uZYPE2Zu7b/0Tv2hLc8nS2bgv3D8JUKy"
+    carson:
+      email: carson@starkweather.us
+      name: Carson
+      password: "$2b$12$arklNvhOpHCyZSbY5JAsAOlt1RshlGA8ku86vwQZTA.gZdDo1sfpq"
+    joe:
+      email: joe@starkweather.us
+      name: Joe
+      password: "$2b$12$h8RVARvc1eKDXDHTrkdFMOiTcBwYSoTHM8bVBKtgD15aEfYfA1/tu"
+    heather:
+      email: heather@starkweather.us
+      name: Heather
+      password: "$2b$12$gp8dBNL6qxeOgpc4j5Livex3iQLY0sSA3D1wH4aRKh8zbZ/bPoOQi"
+
+cookie:
+  expiry_days: 30
+  key: "cd03da7519e78d0fd3b29b14900f50e79f72fffd7a2611e5f13a38453fe3ee60"
+  name: starkweather_prospector

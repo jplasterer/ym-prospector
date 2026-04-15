@@ -1,0 +1,22 @@
+# Environment variables — never commit these
+.env
+
+# Output files — generated at runtime, not part of the codebase
+output/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Streamlit local config
+.streamlit/secrets.toml
+
+# Claude Code project settings
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
