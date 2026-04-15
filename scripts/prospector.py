@@ -16,16 +16,35 @@ import anthropic
 from bs4 import BeautifulSoup
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
-from dotenv import load_dotenv
 
-# Explicitly resolve .env relative to this file so it's found regardless of cwd
-_ENV_PATH = Path(__file__).parent.parent / ".env"
-load_dotenv(dotenv_path=_ENV_PATH)
+# ---------------------------------------------------------------------------
+# Load .env directly — bypasses dotenv parsing quirks with special characters
+# ---------------------------------------------------------------------------
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
+def _load_env_file():
+    """Read the .env file and inject values into os.environ."""
+    env_path = Path(__file__).parent.parent / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key:
+            os.environ[key] = val  # always override — our .env takes priority
 
-anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+_load_env_file()
+
+BRAVE_API_KEY = os.environ.get("BRAVE_API_KEY", "")
+
+
+def _get_anthropic_client() -> anthropic.Anthropic:
+    """Create Anthropic client on demand so the key is always fresh."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    return anthropic.Anthropic(api_key=api_key)
 
 # ---------------------------------------------------------------------------
 # Sector definitions
@@ -210,7 +229,8 @@ def fetch_page(url: str, timeout: int = 8) -> str:
 
 def claude_call(prompt: str, model: str = "claude-sonnet-4-6", max_tokens: int = 4096) -> str:
     """Make a single Claude API call and return the text response."""
-    message = anthropic_client.messages.create(
+    client = _get_anthropic_client()
+    message = client.messages.create(
         model=model,
         max_tokens=max_tokens,
         system=ICP_SYSTEM_PROMPT,
