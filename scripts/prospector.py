@@ -603,6 +603,108 @@ def save_to_excel(prospects: list[dict], output_dir: str, sector: str = "") -> s
 # Main orchestrator
 # ---------------------------------------------------------------------------
 
+def enrich_tier2(prospects: list[dict], status_fn=None) -> list[dict]:
+    """
+    Re-research Tier 2 prospects to fill missing data points and attempt
+    to push them to Tier 1. Focuses on:
+    - ProPublica page fetch for real revenue + staff numbers
+    - LinkedIn people search via Brave for decision-maker names/titles
+    - Org sub-pages for contact info
+    Returns updated prospect list with revised tiers.
+    """
+    tier2 = [p for p in prospects if p.get("tier") == "Tier 2"]
+    other = [p for p in prospects if p.get("tier") != "Tier 2"]
+
+    if not tier2:
+        return prospects
+
+    enriched = []
+    for i, prospect in enumerate(tier2):
+        name = prospect.get("organization_name", "Unknown")
+        website = prospect.get("website_url", "")
+
+        if status_fn:
+            status_fn(f"Enriching {i+1}/{len(tier2)}: {name}...")
+
+        # --- ProPublica: fetch real 990 data ---
+        if not prospect.get("annual_revenue") or not prospect.get("staff_size"):
+            pp_results = brave_search(
+                f'site:projects.propublica.org/nonprofits "{name}"', count=3
+            )
+            if pp_results:
+                pp_url = pp_results[0]["url"]
+                pp_content = fetch_page(pp_url)
+                prospect["propublica_content_enriched"] = pp_content[:1500]
+            else:
+                # Try broader search with revenue keywords
+                pp_results2 = brave_search(
+                    f'"{name}" annual revenue 990 nonprofit', count=3
+                )
+                prospect["propublica_content_enriched"] = " | ".join(
+                    r["description"] for r in pp_results2
+                )
+
+        # --- LinkedIn: people search for decision-maker ---
+        if not prospect.get("decision_maker_name"):
+            li_people = brave_search(
+                f'"{name}" ("executive director" OR "CEO" OR "chief executive" '
+                f'OR "director of membership") site:linkedin.com/in',
+                count=4,
+            )
+            prospect["linkedin_people_enriched"] = [
+                {"title": r["title"], "url": r["url"], "snippet": r["description"]}
+                for r in li_people
+            ]
+
+            # Also try broader LinkedIn company people search
+            li_co = brave_search(
+                f'"{name}" executive director OR CEO linkedin', count=3
+            )
+            prospect["linkedin_broad_enriched"] = [
+                r["description"] for r in li_co
+            ]
+
+        # --- Sub-pages: contact/staff info ---
+        if website and not prospect.get("decision_maker_email"):
+            prospect["subpage_enriched"] = fetch_org_subpages(website)
+
+        enriched.append(prospect)
+        time.sleep(0.4)
+
+    # Re-score enriched Tier 2 prospects with Claude
+    if status_fn:
+        status_fn("Re-scoring enriched prospects with Claude...")
+
+    enriched_text = json.dumps(enriched, indent=2)
+
+    prompt = f"""These are Tier 2 prospects that have been re-researched to find missing data.
+New data fields added:
+- propublica_content_enriched: actual ProPublica 990 page content with revenue/staff figures
+- linkedin_people_enriched: LinkedIn people search results for decision-maker names/titles
+- linkedin_broad_enriched: broader LinkedIn search snippets
+- subpage_enriched: staff/contact sub-page content
+
+PROSPECTS:
+{enriched_text}
+
+For each prospect:
+1. Extract revenue and staff from propublica_content_enriched (look for dollar amounts and employee counts)
+2. Extract decision-maker name and title from linkedin_people_enriched and linkedin_broad_enriched
+3. Extract email/phone from subpage_enriched
+4. Re-score against ICP and assign updated tier (can promote to Tier 1 if data now supports it)
+
+Return a JSON array with ALL standard fields plus updated tier assignments.
+Be specific with revenue (e.g. "$2.8M") and staff (e.g. "5") when found in the data.
+JSON:"""
+
+    response = claude_call(prompt)
+    rescored = extract_json(response)
+
+    if rescored:
+        return other + rescored
+    return other + enriched
+
+
 def run_session(
     sector: str,
     num_targets: int = 12,

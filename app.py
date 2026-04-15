@@ -16,7 +16,7 @@ import streamlit_authenticator as stauth
 from pathlib import Path
 from dotenv import load_dotenv
 
-from scripts.prospector import run_session, SECTORS
+from scripts.prospector import run_session, enrich_tier2, SECTORS
 from scripts.ghl_export import excel_to_ghl_csv
 
 load_dotenv()
@@ -142,6 +142,38 @@ with st.sidebar:
     st.markdown("### YM Prospector")
     st.caption(f"Logged in as **{st.session_state.get('name', '')}**")
     authenticator.logout("Log Out", "sidebar")
+    st.divider()
+
+    # Chrome Mode toggle
+    st.markdown("#### 🔗 Chrome + LinkedIn Mode")
+    chrome_mode = st.toggle(
+        "Claude in Chrome active",
+        value=st.session_state.get("chrome_mode", False),
+        help="Enable this if you have the Claude Chrome extension running and are logged into LinkedIn",
+    )
+    st.session_state["chrome_mode"] = chrome_mode
+
+    if chrome_mode:
+        st.success("Chrome Mode ON")
+        st.markdown("""
+        **Setup checklist:**
+        - ✅ Claude Chrome extension is active
+        - 🔲 LinkedIn is open and you are logged in
+        - 🔲 Your LinkedIn profile is visible
+
+        **Open LinkedIn now:**
+        """)
+        st.link_button("Open LinkedIn", "https://www.linkedin.com/feed/")
+        linkedin_ready = st.checkbox("LinkedIn is open and I'm logged in")
+        st.session_state["linkedin_ready"] = linkedin_ready
+        if linkedin_ready:
+            st.success("Ready to auto-enrich!")
+    else:
+        st.warning(
+            "Chrome Mode is OFF. Enable it to unlock automatic "
+            "LinkedIn enrichment for Tier 2 prospects."
+        )
+
     st.divider()
 
     sector = st.selectbox(
@@ -278,6 +310,61 @@ with tab_results:
 
         st.divider()
 
+        # Auto-enrichment for Tier 2 prospects
+        tier2_count = sum(1 for p in results if p.get("tier") == "Tier 2")
+        chrome_mode = st.session_state.get("chrome_mode", False)
+        linkedin_ready = st.session_state.get("linkedin_ready", False)
+
+        if tier2_count > 0:
+            if not chrome_mode:
+                st.warning(
+                    f"⚠️ **{tier2_count} Tier 2 prospect(s) need enrichment.** "
+                    "Enable Chrome + LinkedIn Mode in the sidebar to auto-enrich them."
+                )
+            elif not linkedin_ready:
+                st.warning(
+                    f"⚠️ **{tier2_count} Tier 2 prospect(s) ready to enrich.** "
+                    "Check 'LinkedIn is open and I'm logged in' in the sidebar to proceed."
+                )
+            else:
+                st.info(
+                    f"✅ Chrome + LinkedIn active. **{tier2_count} Tier 2 prospect(s)** "
+                    "can be auto-enriched with ProPublica revenue and LinkedIn leadership data."
+                )
+                if st.button(
+                    f"🔍 Auto-Enrich {tier2_count} Tier 2 Prospect(s)",
+                    type="primary",
+                ):
+                    with st.status("Enriching Tier 2 prospects...", expanded=True) as enrich_status:
+                        def enrich_update(msg):
+                            st.write(msg)
+
+                        updated = enrich_tier2(
+                            st.session_state.results,
+                            status_fn=enrich_update,
+                        )
+                        st.session_state.results = updated
+
+                        # Re-save Excel with enriched data
+                        from scripts.prospector import save_to_excel
+                        new_path = save_to_excel(
+                            updated,
+                            OUTPUT_DIR,
+                            sector=st.session_state.get("last_sector", ""),
+                        )
+                        st.session_state.output_path = new_path
+
+                        new_t1 = sum(1 for p in updated if p.get("tier") == "Tier 1")
+                        promoted = new_t1 - t1
+                        enrich_status.update(
+                            label=f"Enrichment complete! "
+                                  f"{promoted} prospect(s) promoted to Tier 1.",
+                            state="complete",
+                        )
+                    st.rerun()
+
+        st.divider()
+
         # Download button
         if output_path and Path(output_path).exists():
             with open(output_path, "rb") as f:
@@ -290,25 +377,6 @@ with tab_results:
 
         # Results table
         df = pd.DataFrame(results)
-        display_cols = [
-            "organization_name", "website_url", "association_scope",
-            "ym_confirmed", "staff_size", "annual_revenue",
-            "tier", "pain_signal_notes",
-        ]
-        available_cols = [c for c in display_cols if c in df.columns]
-
-        rename_map = {
-            "organization_name": "Organization",
-            "website_url": "Website",
-            "association_scope": "Scope",
-            "ym_confirmed": "YM?",
-            "staff_size": "Staff",
-            "annual_revenue": "Revenue",
-            "tier": "Tier",
-            "pain_signal_notes": "Pain Signals",
-        }
-
-        display_df = df[available_cols].rename(columns=rename_map)
 
         # Filters
         col_f1, col_f2 = st.columns(2)
@@ -316,7 +384,7 @@ with tab_results:
             tier_filter = st.multiselect(
                 "Filter by Tier",
                 options=["Tier 1", "Tier 2", "Tier 3", "Exclude"],
-                default=["Tier 1", "Tier 2", "Tier 3"],
+                default=["Tier 1", "Tier 2", "Tier 3", "Exclude"],
             )
         with col_f2:
             scope_filter = st.multiselect(
@@ -331,6 +399,32 @@ with tab_results:
             filtered = filtered[filtered["tier"].isin(tier_filter)]
         if "association_scope" in df.columns and scope_filter:
             filtered = filtered[filtered["association_scope"].isin(scope_filter)]
+
+        # Show exclude reason and project notes when Exclude is in filter
+        showing_excluded = "Exclude" in tier_filter
+        display_cols = [
+            "organization_name", "website_url", "association_scope",
+            "ym_confirmed", "staff_size", "annual_revenue",
+            "tier", "pain_signal_notes",
+        ]
+        if showing_excluded:
+            display_cols += ["exclude_reason", "project_opportunity_notes"]
+
+        available_cols = [c for c in display_cols if c in filtered.columns]
+
+        rename_map = {
+            "organization_name": "Organization",
+            "website_url": "Website",
+            "association_scope": "Scope",
+            "ym_confirmed": "YM?",
+            "staff_size": "Staff",
+            "annual_revenue": "Revenue",
+            "tier": "Tier",
+            "pain_signal_notes": "Pain Signals",
+            "exclude_reason": "Exclude Reason",
+            "project_opportunity_notes": "Project Opportunity",
+        }
+
         filtered_df = filtered[available_cols].rename(columns=rename_map)
 
         st.dataframe(
