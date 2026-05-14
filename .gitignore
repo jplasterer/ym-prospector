@@ -4,6 +4,11 @@
 # Output files — generated at runtime, not part of the codebase
 output/
 
+# Node / npm (should never be in this repo)
+node_modules/
+package.json
+package-lock.json
+
 # Python
 __pycache__/
 *.pyc
