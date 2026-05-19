@@ -72,6 +72,20 @@ st.markdown("""
 OUTPUT_DIR = str(Path(__file__).parent / "output" / "nightly")
 
 # ---------------------------------------------------------------------------
+# Version
+# ---------------------------------------------------------------------------
+
+def _get_version() -> str:
+    """Read version from VERSION file."""
+    version_path = Path(__file__).parent / "VERSION"
+    try:
+        return version_path.read_text(encoding="utf-8").strip()
+    except Exception:
+        return "unknown"
+
+APP_VERSION = _get_version()
+
+# ---------------------------------------------------------------------------
 # Authentication
 # ---------------------------------------------------------------------------
 
@@ -141,6 +155,7 @@ with st.sidebar:
         st.image(str(logo_path), width=160)
     st.markdown("### YM Prospector")
     st.caption(f"Logged in as **{st.session_state.get('name', '')}**")
+    st.caption(f"Version {APP_VERSION}")
     authenticator.logout("Log Out", "sidebar")
     st.divider()
 
