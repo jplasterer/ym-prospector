@@ -9,10 +9,8 @@ from pathlib import Path
 # Ensure project root is on the path
 sys.path.insert(0, str(Path(__file__).parent))
 
-import yaml
 import streamlit as st
 import pandas as pd
-import streamlit_authenticator as stauth
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -87,30 +85,6 @@ def _get_version() -> str:
 APP_VERSION = _get_version()
 
 # ---------------------------------------------------------------------------
-# Authentication
-# ---------------------------------------------------------------------------
-
-_auth_config_path = Path(__file__).parent / "auth_config.yaml"
-with open(_auth_config_path) as f:
-    _auth_config = yaml.safe_load(f)
-
-authenticator = stauth.Authenticate(
-    _auth_config["credentials"],
-    _auth_config["cookie"]["name"],
-    _auth_config["cookie"]["key"],
-    _auth_config["cookie"]["expiry_days"],
-)
-
-authenticator.login()
-
-if st.session_state.get("authentication_status") is False:
-    st.error("Incorrect username or password.")
-    st.stop()
-elif st.session_state.get("authentication_status") is None:
-    st.info("Please log in to access the Starkweather YM Prospector.")
-    st.stop()
-
-# ---------------------------------------------------------------------------
 # Session state
 # ---------------------------------------------------------------------------
 
@@ -167,9 +141,7 @@ with st.sidebar:
     if logo_path.exists():
         st.image(str(logo_path), width=160)
     st.markdown("### YM Prospector")
-    st.caption(f"Logged in as **{st.session_state.get('name', '')}**")
     st.caption(f"Version {APP_VERSION}")
-    authenticator.logout("Log Out", "sidebar")
     st.divider()
 
     # Chrome Mode toggle
