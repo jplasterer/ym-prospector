@@ -172,10 +172,19 @@ DATA SOURCE RELIABILITY (use in this order):
 4. ZoomInfo/RocketReach — LAST RESORT, often wildly inaccurate for small associations
 
 TIER DEFINITIONS:
-- Tier 1: Confirmed YM + staff 3–8 + revenue $2.5M+ + at least one complexity platform → Ready for outreach
-- Tier 2: Confirmed YM + meets size/revenue BUT missing one data point to confirm → Needs enrichment
-- Tier 3: YM likely but unconfirmed, OR borderline on size/revenue → Watch list
-- Exclude: Outside ICP criteria — log reason clearly
+- Strong Fit: Confirmed YM + staff 3–8 + revenue $2.5M+ + at least one complexity platform → Ready for outreach
+- Medium Fit: Confirmed YM + meets size/revenue BUT missing one data point to confirm → Needs enrichment
+- Unlikely Fit: YM likely but unconfirmed, OR borderline on size/revenue → Watch list
+- Not a Fit: Outside ICP criteria — log reason clearly
+
+CRITICAL SCORING RULE — LinkedIn contact does NOT affect tier:
+A missing decision maker name, title, or LinkedIn URL must NEVER cause a prospect to be
+downgraded or held at a lower tier. Tiers are determined solely by:
+  (1) YM platform confirmation
+  (2) Staff size (3–8 FTE)
+  (3) Annual revenue ($2.5M+)
+  (4) Complexity signals (additional platforms)
+If all four criteria are met, assign Strong Fit regardless of whether a contact was found.
 """
 
 # ---------------------------------------------------------------------------
@@ -572,15 +581,21 @@ Return a JSON array (no other text) where each object contains ALL of these fiel
   "decision_maker_name": "Name if findable, else empty string",
   "decision_maker_title": "Title if findable (ED, CEO, Director of Membership, etc.), else empty string",
   "decision_maker_email": "Email if findable, else empty string",
+  "decision_maker_linkedin_url": "Full linkedin.com/in/... profile URL from the linkedin_people results — use the url field from the best matching result, else empty string",
   "pain_signal_notes": "Key pain signals visible from public info (bandwidth, renewal risk, events, etc.)",
   "association_scope": "Local / State / National / International — classify based on membership geography. Local = single city/metro. State = statewide chapter. National = serves entire US or US+Canada. International = global membership.",
-  "tier": "Tier 1 or Tier 2 or Tier 3 or Exclude",
-  "exclude_reason": "Brief reason if Exclude, else empty string",
+  "tier": "Strong Fit or Medium Fit or Unlikely Fit or Not a Fit",
+  "exclude_reason": "Brief reason if Not a Fit, else empty string",
   "project_opportunity_notes": "If excluded due to revenue/size but still a legitimate YM association with operational needs, note the potential for smaller-value project or advisory work (e.g. 'Small state nursing assoc at $1.6M revenue — outside ICP but could benefit from a YM audit or CE workflow project'). Leave empty if not applicable."
 }}
 
-Be conservative: only assign Tier 1 when YM is confirmed AND size/revenue signals are strong.
-Assign Exclude (with reason) for anything outside the ICP.
+CRITICAL: A missing decision maker name, title, email, or LinkedIn URL must NEVER cause a
+prospect to be placed in a lower tier. Tier is determined only by YM confirmation, staff size,
+revenue, and complexity platforms. Assign Strong Fit when those four criteria are met even if
+no contact was found.
+
+Be conservative: only assign Strong Fit when YM is confirmed AND size/revenue signals are strong.
+Assign Not a Fit (with reason) for anything outside the ICP.
 For excluded orgs that are legitimate associations with real YM usage, always populate project_opportunity_notes.
 
 JSON array:"""
@@ -601,6 +616,7 @@ HEADERS = [
     "Association Scope", "Staff Size", "Annual Revenue", "YM Confirmed?",
     "LMS Platform", "Community Platform", "Other Platforms",
     "Key Decision Maker Name", "Key Decision Maker Title", "Key Decision Maker Email",
+    "Decision Maker LinkedIn URL",
     "Pain Signal Notes", "Priority Tier", "Exclude Reason",
     "Project Opportunity Notes",
 ]
@@ -610,22 +626,23 @@ FIELD_MAP = [
     "association_scope", "staff_size", "annual_revenue", "ym_confirmed",
     "lms_platform", "community_platform", "other_platforms",
     "decision_maker_name", "decision_maker_title", "decision_maker_email",
+    "decision_maker_linkedin_url",
     "pain_signal_notes", "tier", "exclude_reason",
     "project_opportunity_notes",
 ]
 
 TIER_COLORS = {
-    "Tier 1": "C6EFCE",   # Green
-    "Tier 2": "FFEB9C",   # Yellow
-    "Tier 3": "FFCC99",   # Orange
-    "Exclude": "FFC7CE",  # Red
+    "Strong Fit":   "C6EFCE",   # Green
+    "Medium Fit":   "FFEB9C",   # Yellow
+    "Unlikely Fit": "FFCC99",   # Orange
+    "Not a Fit":    "FFC7CE",   # Red
 }
 
 SHEET_CONFIGS = [
-    ("Tier 1 – Ready for Outreach", "Tier 1"),
-    ("Tier 2 – Needs Enrichment",   "Tier 2"),
-    ("Tier 3 – Watch List",         "Tier 3"),
-    ("Excluded",                    "Exclude"),
+    ("Strong Fit – Ready for Outreach", "Strong Fit"),
+    ("Medium Fit – Needs Enrichment",   "Medium Fit"),
+    ("Unlikely Fit – Watch List",       "Unlikely Fit"),
+    ("Not a Fit",                       "Not a Fit"),
 ]
 
 
@@ -662,16 +679,10 @@ def save_to_excel(prospects: list[dict], output_dir: str, sector: str = "") -> s
             cell.alignment = Alignment(horizontal="center", wrap_text=True)
 
         # Filter prospects for this sheet
-        if tier_filter == "Exclude":
-            sheet_prospects = [
-                p for p in prospects
-                if p.get("tier", "").strip().lower() in ("exclude", "excluded")
-            ]
-        else:
-            sheet_prospects = [
-                p for p in prospects
-                if p.get("tier", "").strip() == tier_filter
-            ]
+        sheet_prospects = [
+            p for p in prospects
+            if p.get("tier", "").strip() == tier_filter
+        ]
 
         fill_color = TIER_COLORS.get(tier_filter, "FFFFFF")
         for prospect in sheet_prospects:
@@ -682,7 +693,7 @@ def save_to_excel(prospects: list[dict], output_dir: str, sector: str = "") -> s
                 cell.alignment = Alignment(wrap_text=True)
 
         # Column widths
-        col_widths = [30, 35, 15, 15, 15, 14, 12, 15, 15, 20, 20, 25, 25, 25, 30, 40, 12, 30, 45]
+        col_widths = [30, 35, 15, 15, 15, 14, 12, 15, 15, 20, 20, 25, 25, 25, 30, 45, 40, 12, 30, 45]
         for i, width in enumerate(col_widths, 1):
             ws.column_dimensions[ws.cell(1, i).column_letter].width = width
 
@@ -703,8 +714,8 @@ def enrich_tier2(prospects: list[dict], status_fn=None) -> list[dict]:
     - Org sub-pages for contact info
     Returns updated prospect list with revised tiers.
     """
-    tier2 = [p for p in prospects if p.get("tier") == "Tier 2"]
-    other = [p for p in prospects if p.get("tier") != "Tier 2"]
+    tier2 = [p for p in prospects if p.get("tier") == "Medium Fit"]
+    other = [p for p in prospects if p.get("tier") != "Medium Fit"]
 
     if not tier2:
         return prospects
@@ -768,10 +779,10 @@ def enrich_tier2(prospects: list[dict], status_fn=None) -> list[dict]:
 
     enriched_text = json.dumps(enriched, indent=2)
 
-    prompt = f"""These are Tier 2 prospects that have been re-researched to find missing data.
+    prompt = f"""These are Medium Fit prospects that have been re-researched to find missing data.
 New data fields added:
 - propublica_content_enriched: actual ProPublica 990 page content with revenue/staff figures
-- linkedin_people_enriched: LinkedIn people search results for decision-maker names/titles
+- linkedin_people_enriched: LinkedIn people search results for decision-maker names/titles/URLs
 - linkedin_broad_enriched: broader LinkedIn search snippets
 - subpage_enriched: staff/contact sub-page content
 
@@ -780,11 +791,16 @@ PROSPECTS:
 
 For each prospect:
 1. Extract revenue and staff from propublica_content_enriched (look for dollar amounts and employee counts)
-2. Extract decision-maker name and title from linkedin_people_enriched and linkedin_broad_enriched
+2. Extract decision-maker name, title, and linkedin.com/in/... URL from linkedin_people_enriched
 3. Extract email/phone from subpage_enriched
-4. Re-score against ICP and assign updated tier (can promote to Tier 1 if data now supports it)
+4. Re-score against ICP and assign updated tier (can promote to Strong Fit if data now supports it)
 
-Return a JSON array with ALL standard fields plus updated tier assignments.
+Tier values: Strong Fit / Medium Fit / Unlikely Fit / Not a Fit
+
+CRITICAL: Missing decision maker contact info must NEVER prevent promotion to Strong Fit.
+Tier is determined only by YM confirmation, staff size, revenue, and complexity platforms.
+
+Return a JSON array with ALL standard fields (including decision_maker_linkedin_url) plus updated tier assignments.
 Be specific with revenue (e.g. "$2.8M") and staff (e.g. "5") when found in the data.
 JSON:"""
 
@@ -869,12 +885,12 @@ def run_session(
     output_path = save_to_excel(prospects, output_dir, sector=sector)
 
     if status_fn:
-        tier1 = sum(1 for p in prospects if p.get("tier") == "Tier 1")
-        tier2 = sum(1 for p in prospects if p.get("tier") == "Tier 2")
-        tier3 = sum(1 for p in prospects if p.get("tier") == "Tier 3")
+        t_strong   = sum(1 for p in prospects if p.get("tier") == "Strong Fit")
+        t_medium   = sum(1 for p in prospects if p.get("tier") == "Medium Fit")
+        t_unlikely = sum(1 for p in prospects if p.get("tier") == "Unlikely Fit")
         status_fn(
-            f"Done! {tier1} Tier 1 | {tier2} Tier 2 | {tier3} Tier 3 | "
-            f"Saved to {Path(output_path).name}"
+            f"Done! {t_strong} Strong Fit | {t_medium} Medium Fit | "
+            f"{t_unlikely} Unlikely Fit | Saved to {Path(output_path).name}"
         )
 
     return prospects, output_path

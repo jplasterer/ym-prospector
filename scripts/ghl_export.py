@@ -111,7 +111,7 @@ def excel_to_ghl_csv(
         (csv_string, row_count)
     """
     if tiers is None:
-        tiers = ["Tier 1", "Tier 2"]
+        tiers = ["Strong Fit", "Medium Fit"]
 
     if not run_date:
         # Infer from filename

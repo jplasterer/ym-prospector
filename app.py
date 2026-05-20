@@ -133,11 +133,23 @@ def get_run_history() -> list[Path]:
 
 def tier_color(tier: str) -> str:
     return {
-        "Tier 1": "#C6EFCE",
-        "Tier 2": "#FFEB9C",
-        "Tier 3": "#FFCC99",
-        "Exclude": "#FFC7CE",
+        "Strong Fit":   "#C6EFCE",
+        "Medium Fit":   "#FFEB9C",
+        "Unlikely Fit": "#FFCC99",
+        "Not a Fit":    "#FFC7CE",
     }.get(tier, "#FFFFFF")
+
+
+def linkedin_message_url(profile_url: str) -> str:
+    """Build a LinkedIn message compose URL from a profile URL."""
+    if not profile_url or str(profile_url).strip() in ("", "nan", "None"):
+        return ""
+    import re
+    match = re.search(r"linkedin\.com/in/([^/?#\s]+)", str(profile_url))
+    if match:
+        vanity = match.group(1)
+        return f"https://www.linkedin.com/messaging/compose?recipient={vanity}"
+    return str(profile_url)  # fallback to profile URL
 
 
 def style_tier_row(row):
@@ -216,11 +228,11 @@ with st.sidebar:
     st.divider()
     st.markdown(
         """
-        **Tier Guide**
-        - 🟢 Tier 1 — Ready for outreach
-        - 🟡 Tier 2 — Needs enrichment
-        - 🟠 Tier 3 — Watch list
-        - 🔴 Exclude — Outside ICP
+        **Fit Guide**
+        - 🟢 Strong Fit — Ready for outreach
+        - 🟡 Medium Fit — Needs enrichment
+        - 🟠 Unlikely Fit — Watch list
+        - 🔴 Not a Fit — Outside ICP
         """
     )
 
@@ -272,12 +284,12 @@ with tab_run:
             st.session_state.output_path = output_path
 
             if results:
-                t1 = sum(1 for p in results if p.get("tier") == "Tier 1")
-                t2 = sum(1 for p in results if p.get("tier") == "Tier 2")
-                t3 = sum(1 for p in results if p.get("tier") == "Tier 3")
+                t1 = sum(1 for p in results if p.get("tier") == "Strong Fit")
+                t2 = sum(1 for p in results if p.get("tier") == "Medium Fit")
+                t3 = sum(1 for p in results if p.get("tier") == "Unlikely Fit")
                 ex = len(results) - t1 - t2 - t3
                 status.update(
-                    label=f"Complete — {t1} Tier 1 | {t2} Tier 2 | {t3} Tier 3 | {ex} Excluded",
+                    label=f"Complete — {t1} Strong Fit | {t2} Medium Fit | {t3} Unlikely Fit | {ex} Not a Fit",
                     state="complete",
                 )
                 st.success("Session complete! View results in the **Results** tab.")
@@ -312,42 +324,42 @@ with tab_results:
 
     if results:
         # Summary metrics
-        t1 = sum(1 for p in results if p.get("tier") == "Tier 1")
-        t2 = sum(1 for p in results if p.get("tier") == "Tier 2")
-        t3 = sum(1 for p in results if p.get("tier") == "Tier 3")
+        t1 = sum(1 for p in results if p.get("tier") == "Strong Fit")
+        t2 = sum(1 for p in results if p.get("tier") == "Medium Fit")
+        t3 = sum(1 for p in results if p.get("tier") == "Unlikely Fit")
         ex = len(results) - t1 - t2 - t3
 
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Tier 1 – Ready", t1)
-        col2.metric("Tier 2 – Enrich", t2)
-        col3.metric("Tier 3 – Watch", t3)
-        col4.metric("Excluded", ex)
+        col1.metric("🟢 Strong Fit", t1)
+        col2.metric("🟡 Medium Fit", t2)
+        col3.metric("🟠 Unlikely Fit", t3)
+        col4.metric("🔴 Not a Fit", ex)
 
         st.divider()
 
         # Auto-enrichment for Tier 2 prospects
-        tier2_count = sum(1 for p in results if p.get("tier") == "Tier 2")
+        tier2_count = sum(1 for p in results if p.get("tier") == "Medium Fit")
         chrome_mode = st.session_state.get("chrome_mode", False)
         linkedin_ready = st.session_state.get("linkedin_ready", False)
 
         if tier2_count > 0:
             if not chrome_mode:
                 st.warning(
-                    f"⚠️ **{tier2_count} Tier 2 prospect(s) need enrichment.** "
+                    f"⚠️ **{tier2_count} Medium Fit prospect(s) need enrichment.** "
                     "Enable Chrome + LinkedIn Mode in the sidebar to auto-enrich them."
                 )
             elif not linkedin_ready:
                 st.warning(
-                    f"⚠️ **{tier2_count} Tier 2 prospect(s) ready to enrich.** "
+                    f"⚠️ **{tier2_count} Medium Fit prospect(s) ready to enrich.** "
                     "Check 'LinkedIn is open and I'm logged in' in the sidebar to proceed."
                 )
             else:
                 st.info(
-                    f"✅ Chrome + LinkedIn active. **{tier2_count} Tier 2 prospect(s)** "
+                    f"✅ Chrome + LinkedIn active. **{tier2_count} Medium Fit prospect(s)** "
                     "can be auto-enriched with ProPublica revenue and LinkedIn leadership data."
                 )
                 if st.button(
-                    f"🔍 Auto-Enrich {tier2_count} Tier 2 Prospect(s)",
+                    f"🔍 Auto-Enrich {tier2_count} Medium Fit Prospect(s)",
                     type="primary",
                 ):
                     with st.status("Enriching Tier 2 prospects...", expanded=True) as enrich_status:
@@ -369,7 +381,7 @@ with tab_results:
                         )
                         st.session_state.output_path = new_path
 
-                        new_t1 = sum(1 for p in updated if p.get("tier") == "Tier 1")
+                        new_t1 = sum(1 for p in updated if p.get("tier") == "Strong Fit")
                         promoted = new_t1 - t1
                         enrich_status.update(
                             label=f"Enrichment complete! "
@@ -396,10 +408,10 @@ with tab_results:
         # Filters
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            tier_filter = st.multiselect(
-                "Filter by Tier",
-                options=["Tier 1", "Tier 2", "Tier 3", "Exclude"],
-                default=["Tier 1", "Tier 2", "Tier 3", "Exclude"],
+            fit_filter = st.multiselect(
+                "Filter by Fit",
+                options=["Strong Fit", "Medium Fit", "Unlikely Fit", "Not a Fit"],
+                default=["Strong Fit", "Medium Fit", "Unlikely Fit", "Not a Fit"],
             )
         with col_f2:
             scope_filter = st.multiselect(
@@ -410,19 +422,23 @@ with tab_results:
             )
 
         filtered = df.copy()
-        if "tier" in df.columns and tier_filter:
-            filtered = filtered[filtered["tier"].isin(tier_filter)]
+        if "tier" in df.columns and fit_filter:
+            filtered = filtered[filtered["tier"].isin(fit_filter)]
         if "association_scope" in df.columns and scope_filter:
             filtered = filtered[filtered["association_scope"].isin(scope_filter)]
 
-        # Show exclude reason and project notes when Exclude is in filter
-        showing_excluded = "Exclude" in tier_filter
+        # Build display columns — always show LinkedIn URL + message; show
+        # exclude reason and project notes when "Not a Fit" is in the filter
+        showing_not_a_fit = "Not a Fit" in fit_filter
         display_cols = [
             "organization_name", "website_url", "association_scope",
             "ym_confirmed", "staff_size", "annual_revenue",
-            "tier", "pain_signal_notes",
+            "tier",
+            "decision_maker_name", "decision_maker_title",
+            "decision_maker_linkedin_url",
+            "pain_signal_notes",
         ]
-        if showing_excluded:
+        if showing_not_a_fit:
             display_cols += ["exclude_reason", "project_opportunity_notes"]
 
         available_cols = [c for c in display_cols if c in filtered.columns]
@@ -434,7 +450,10 @@ with tab_results:
             "ym_confirmed": "YM?",
             "staff_size": "Staff",
             "annual_revenue": "Revenue",
-            "tier": "Tier",
+            "tier": "Fit",
+            "decision_maker_name": "Contact Name",
+            "decision_maker_title": "Contact Title",
+            "decision_maker_linkedin_url": "LinkedIn",
             "pain_signal_notes": "Pain Signals",
             "exclude_reason": "Exclude Reason",
             "project_opportunity_notes": "Project Opportunity",
@@ -442,10 +461,25 @@ with tab_results:
 
         filtered_df = filtered[available_cols].rename(columns=rename_map)
 
+        # Add a Message column derived from the LinkedIn URL
+        if "LinkedIn" in filtered_df.columns:
+            filtered_df["Message"] = filtered_df["LinkedIn"].apply(linkedin_message_url)
+
         st.dataframe(
             filtered_df,
             use_container_width=True,
             height=500,
+            column_config={
+                "Website": st.column_config.LinkColumn(
+                    "Website", display_text="Visit Site"
+                ),
+                "LinkedIn": st.column_config.LinkColumn(
+                    "LinkedIn", display_text="View Profile"
+                ),
+                "Message": st.column_config.LinkColumn(
+                    "Message", display_text="💬 Message"
+                ),
+            },
         )
 
     else:
@@ -509,10 +543,10 @@ with tab_ghl:
 
         # Tier selector
         tiers_to_export = st.multiselect(
-            "Include Tiers",
-            options=["Tier 1", "Tier 2", "Tier 3"],
-            default=["Tier 1", "Tier 2"],
-            help="Tier 1 and 2 are recommended for outreach. Tier 3 can be added for awareness.",
+            "Include Fits",
+            options=["Strong Fit", "Medium Fit", "Unlikely Fit"],
+            default=["Strong Fit", "Medium Fit"],
+            help="Strong Fit and Medium Fit are recommended for outreach. Unlikely Fit can be added for awareness.",
         )
 
         st.divider()
