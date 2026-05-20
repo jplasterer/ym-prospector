@@ -27,6 +27,7 @@ load_dotenv()
 
 st.set_page_config(
     page_title="Starkweather YM Prospector",
+    page_icon=str(Path(__file__).parent / "assets" / "logo.png"),
     layout="wide",
     initial_sidebar_state="expanded",
 )
